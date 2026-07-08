@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Corporate Attendance Portal</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#1B365D">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+      :root { --navy: #1B365D; --slate: #4A5568; --bg: #F0F2F5; --border: #E2E8F0; --present-green: #38A169; --absent-red: #E53E3E; --late-orange: #DD6B20; --white: #FFFFFF; }
+      body { font-family: 'Inter', sans-serif; background-color: var(--bg); margin: 0; padding: 12px; color: var(--slate); line-height: 1.5; -webkit-tap-highlight-color: transparent; }
+      .container { width: 100%; max-width: 500px; margin: 0 auto; }
+      .card { background: var(--white); padding: 24px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border-top: 8px solid var(--navy); margin-bottom: 24px; }
+      h1 { font-size: 22px; color: var(--navy); text-align: center; margin: 0; text-transform: uppercase; font-weight: 800; }
+      h2 { font-size: 14px; color: var(--slate); text-align: center; margin: 6px 0 16px; font-weight: 500; opacity: 0.8; }
+      h3 { font-size: 13px; color: var(--navy); text-align: center; text-transform: uppercase; border-bottom: 1px solid #EEE; padding-bottom: 12px; margin-bottom: 16px; font-weight: 700; }
+      .tabs { display: flex; gap: 8px; margin-bottom: 24px; background: #E4E6EB; padding: 6px; border-radius: 10px; }
+      .tab-btn { flex: 1; padding: 10px; cursor: pointer; border: none; background: none; font-weight: 600; font-size: 12px; border-radius: 8px; color: var(--slate); }
+      .tab-btn.active { background: var(--white); color: var(--navy); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+      label { display: block; font-weight: 700; margin-top: 14px; font-size: 10px; color: var(--navy); text-transform: uppercase; }
+      input, select, textarea { width: 100%; padding: 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; font-size: 15px; box-sizing: border-box; outline: none; background: #F8FAFC; }
+      .stats-bar { display: flex; gap: 12px; margin: 20px 0; }
+      .stat-item { flex: 1; text-align: center; padding: 14px; background: #F8FAFC; border: 1px solid var(--border); border-radius: 12px; }
+      .stat-val { display: block; font-size: 22px; font-weight: 800; color: var(--navy); }
+      .stat-label { font-size: 9px; text-transform: uppercase; font-weight: 700; }
+      .emp-row { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+      .emp-flex { display: flex; align-items: center; justify-content: space-between; }
+      .btn-toggle { padding: 10px 16px; border: 1px solid var(--border); border-radius: 8px; background: #F1F5F9; cursor: pointer; font-size: 12px; font-weight: 700; min-width: 60px; }
+      .active-present { background: var(--present-green) !important; color: white !important; border-color: var(--present-green); }
+      .active-absent { background: var(--absent-red) !important; color: white !important; border-color: var(--absent-red); }
+      .status-tag { font-size: 9px; padding: 3px 6px; border-radius: 5px; font-weight: 800; margin-left: 6px; background: #FFF5F5; color: var(--late-orange); border: 1px solid var(--late-orange); text-transform: uppercase; }
+      .absence-box { margin-top: 12px; padding: 12px; background: #FFF5F5; border-radius: 10px; border-left: 4px solid var(--absent-red); }
+      .replacement-select { margin-top: 8px; border: 1px solid #feb2b2; background: white !important; }
+      .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+      .upload-box { border: 2px dashed #CBD5E0; border-radius: 12px; padding: 12px; text-align: center; cursor: pointer; min-height: 90px; display: flex; flex-direction: column; justify-content: center; background: #F8FAFC; }
+      .upload-box img { width: 100%; max-height: 140px; object-fit: cover; border-radius: 8px; margin-top: 8px; border: 1px solid #E2E8F0; }
+      .btn-main { width: 100%; padding: 16px; background: var(--navy); color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; margin-top: 24px; text-transform: uppercase; font-size: 14px; box-shadow: 0 4px 12px rgba(27,54,93,0.2); }
+      .toast { position: fixed; bottom: 30px; left: 20px; right: 20px; background: #333; color: white; padding: 14px; border-radius: 10px; text-align: center; font-size: 14px; font-weight: 600; display: none; z-index: 3000; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+      .hidden { display: none; }
+      .loading-msg { text-align: center; padding: 30px; font-size: 14px; font-weight: 600; color: var(--navy); }
+      .badge { text-align: center; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 8px; margin-bottom: 14px; }
+      .badge-sync { color: var(--late-orange); background: #FFF5E5; border: 1px solid var(--late-orange); }
+      .badge-offline { color: var(--absent-red); background: #FDECEC; border: 1px solid var(--absent-red); }
+    </style>
+  </head>
+  <body>
+
+    <div id="toast" class="toast">Action Successful</div>
+
+    <div class="container">
+      <!-- LOGIN -->
+      <div id="loginView" class="card">
+        <h1>PORTAL LOGIN</h1>
+        <h2>Corporate Management System</h2>
+        <div id="loginConnNote" class="badge badge-offline hidden">No internet connection. First login needs connectivity — after that, this app works offline.</div>
+        <label>Username</label><input type="text" id="user" placeholder="Your username">
+        <label>Password</label><input type="password" id="pass" placeholder="••••••••">
+        <button class="btn-main" id="loginBtn" onclick="login()">Log In</button>
+      </div>
+
+      <!-- APP -->
+      <div id="appView" class="card hidden">
+        <h1 id="mainComp">...</h1>
+        <h2 id="subRegionSite">...</h2>
+        <h3>Attendance Management</h3>
+
+        <div id="connBadge" class="badge badge-offline hidden"></div>
+        <div id="syncBadge" class="badge badge-sync hidden"></div>
+
+        <div class="tabs">
+          <div id="tabReg" class="tab-btn active" onclick="switchTab('register')">Attendance</div>
+          <div id="tabLate" class="tab-btn" onclick="switchTab('late')">Lateness</div>
+        </div>
+
+        <div id="sectionRegister">
+          <div style="display:flex; gap:12px;">
+            <div style="flex:1;"><label>Date</label><input type="date" id="regDate"></div>
+            <div style="flex:1;"><label>Shift</label>
+              <select id="shift" onchange="resetLateUI()">
+                <option value="07:00-16:00">07:00 - 16:00</option>
+                <option value="08:00-17:00">08:00 - 17:00</option>
+              </select>
+            </div>
+          </div>
+          <div class="stats-bar">
+            <div class="stat-item"><span class="stat-val" id="cntP">0</span><span class="stat-label">Present/Late</span></div>
+            <div class="stat-item"><span class="stat-val" id="cntA" style="color:var(--absent-red)">0</span><span class="stat-label">Absent</span></div>
+          </div>
+
+          <div id="staffList"><div class="loading-msg">Fetching Staff...</div></div>
+
+          <label>Required Verification Photos</label>
+          <div class="upload-grid">
+             <div class="upload-box" onclick="document.getElementById('fileSup').click()">
+               <input type="file" id="fileSup" class="hidden" accept="image/*" capture="camera" onchange="handleFile(this, 'supPrev', 'supData')">
+               <span id="supLabel" style="font-size:10px; font-weight:700;">SUPERVISOR</span>
+               <img id="supPrev" class="hidden"><input type="hidden" id="supData">
+             </div>
+             <div class="upload-box" onclick="document.getElementById('fileStaff').click()">
+               <input type="file" id="fileStaff" class="hidden" accept="image/*" capture="camera" onchange="handleStaffFiles(this)">
+               <span id="staffLabel" style="font-size:10px; font-weight:700;">GROUP PHOTO</span>
+               <img id="staffPrev" class="hidden"><input type="hidden" id="staffData">
+             </div>
+          </div>
+
+          <div style="margin-top:24px; border-top: 1px solid #eee; padding-top:16px;">
+            <label>Supervisor Full Name</label>
+            <input type="text" id="signOffName" placeholder="Type name to acknowledge">
+          </div>
+
+          <button class="btn-main" id="regSubmitBtn" onclick="submitRegister()">Submit Register</button>
+        </div>
+
+        <div id="sectionLate" class="hidden">
+          <label>Select Staff Member</label>
+          <select id="lateEmpSelect" onchange="resetLateUI()"></select>
+          <div style="background:#F8FAFC; padding:20px; border-radius:14px; margin-top:12px; border:1px solid var(--border);">
+            <label>Actual Arrival Time</label>
+            <input type="time" id="arrivalTime" onchange="updateLateCalc()">
+            <div id="lateResult" style="margin-top:16px; text-align:center;">
+              <span id="lateStatus" style="font-weight:bold; font-size:11px; text-transform:uppercase;"></span>
+              <span id="lateDuration" style="display:block; font-size:26px; font-weight:800; color:var(--absent-red)"></span>
+            </div>
+            <label>Reason</label><textarea id="lateReason" placeholder="Explain the delay..."></textarea>
+          </div>
+          <button class="btn-main" onclick="submitLate()">Confirm Lateness</button>
+
+          <div id="lateLogContainer" class="hidden" style="margin-top:24px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead><tr><th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Name</th><th style="padding:8px; border-bottom:1px solid #ddd;">Mins</th><th style="padding:8px; border-bottom:1px solid #ddd;">Action</th></tr></thead>
+              <tbody id="lateLogBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <button class="btn-main" style="background:#F1F5F9; color:var(--absent-red); margin-top:32px; box-shadow:none; border: 1px solid #E2E8F0;" onclick="logout()">LOGOUT</button>
+      </div>
+    </div>
+
+    <canvas id="canvas" class="hidden"></canvas>
+
+    <script>
+      // =====================================================================
+      // CONFIG — paste your deployed Apps Script Web App /exec URL here
+      // =====================================================================
+      const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxEP-qrRq1WeBbz7bJl6CehUPPI8pzqhRdzQzQJyZqcHYTy10Eu22sJCx6y-Zqrr5VS/exec";
+
+      let userSession = {}; let employees = []; let registerState = {}; let hasGroupPhoto = false; let sessionFirstRow = null;
+      let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = [];
+      let currentLocation = "Location: Fetching...";
+
+      function fetchLocation() {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            pos => currentLocation = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`,
+            err => currentLocation = "Location: Unavailable"
+          );
+        }
+      }
+
+      function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 4000); }
+
+      function logout() {
+        localStorage.removeItem('cachedApp');
+        userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = [];
+        document.getElementById('appView').classList.add('hidden');
+        document.getElementById('loginView').classList.remove('hidden');
+        document.getElementById('user').value = ""; document.getElementById('pass').value = "";
+        showToast("Logged out. Offline cache cleared.");
+      }
+
+      function switchTab(tab) {
+        document.getElementById('sectionRegister').classList.toggle('hidden', tab !== 'register');
+        document.getElementById('sectionLate').classList.toggle('hidden', tab !== 'late');
+        document.getElementById('tabReg').classList.toggle('active', tab === 'register');
+        document.getElementById('tabLate').classList.toggle('active', tab === 'late');
+        if(tab === 'late') populateLateDropdown();
+      }
+
+      // =====================================================================
+      // NETWORK LAYER — fetch() to the Apps Script API, with an IndexedDB
+      // offline queue for anything that fails or has no connection.
+      // =====================================================================
+      function apiCall(action, data = {}) {
+        return new Promise((resolve, reject) => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12000); // don't hang forever
+          fetch(APPS_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
+            body: JSON.stringify({ action, ...data }),
+            signal: controller.signal
+          })
+            .then((res) => res.json())
+            .then((json) => { clearTimeout(timeout); resolve(json); })
+            .catch((err) => { clearTimeout(timeout); reject(err); });
+        });
+      }
+
+      const DB_NAME = 'AttendanceOfflineDB';
+      const STORE_NAME = 'queue';
+      let dbPromise = null;
+
+      function openDB() {
+        if (dbPromise) return dbPromise;
+        dbPromise = new Promise((resolve, reject) => {
+          const req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        return dbPromise;
+      }
+
+      async function queuePut(item) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).put(item);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function queueDelete(id) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+
+      async function queueGetAll() {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const req = tx.objectStore(STORE_NAME).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+      }
+
+      async function updateSyncBadge() {
+        const items = await queueGetAll();
+        const badge = document.getElementById('syncBadge');
+        if (!badge) return;
+        if (items.length === 0) { badge.classList.add('hidden'); badge.innerText = ""; return; }
+        badge.classList.remove('hidden');
+        badge.innerText = `⏳ ${items.length} submission${items.length > 1 ? 's' : ''} waiting to sync...`;
+      }
+
+      function updateConnBadge() {
+        const badge = document.getElementById('connBadge');
+        const note = document.getElementById('loginConnNote');
+        if (navigator.onLine) {
+          if (badge) badge.classList.add('hidden');
+          if (note) note.classList.add('hidden');
+        } else {
+          if (badge) { badge.classList.remove('hidden'); badge.innerText = "📡 Offline — submissions will sync automatically once you're back online."; }
+          if (note) note.classList.remove('hidden');
+        }
+      }
+      window.addEventListener('online', updateConnBadge);
+      window.addEventListener('offline', updateConnBadge);
+
+      /** Try live, fall back to the offline queue if there's no connection or the call fails/times out. */
+      function apiCallOrQueue(action, data, queueId, queueType, onLiveSuccess) {
+        return new Promise((resolve) => {
+          if (!navigator.onLine) {
+            queuePut({ id: queueId, type: queueType, action, data, ts: Date.now() })
+              .then(() => { updateSyncBadge(); resolve({ queued: true }); });
+            return;
+          }
+          apiCall(action, data)
+            .then((res) => { if (onLiveSuccess) onLiveSuccess(res); resolve({ queued: false, result: res }); })
+            .catch(() => {
+              queuePut({ id: queueId, type: queueType, action, data, ts: Date.now() })
+                .then(() => { updateSyncBadge(); resolve({ queued: true }); });
+            });
+        });
+      }
+
+      let isSyncing = false;
+      async function flushQueue() {
+        if (isSyncing || !navigator.onLine) return;
+        isSyncing = true;
+        try {
+          const items = await queueGetAll();
+          for (const item of items) {
+            try {
+              const res = await apiCall(item.action, item.data);
+              await queueDelete(item.id);
+              if (item.type === 'register' && res && res.status === 'Success') {
+                sessionFirstRow = res.firstRow;
+                const btn = document.getElementById('regSubmitBtn');
+                if (btn) btn.innerText = "Update & Resend Email";
+              }
+            } catch (e) { /* still offline / failed — leave it queued, retry next pass */ }
+          }
+        } finally {
+          await updateSyncBadge();
+          isSyncing = false;
+        }
+      }
+
+      window.addEventListener('online', flushQueue);
+      setInterval(flushQueue, 20000); // safety net: navigator.onLine can be unreliable
+
+      // =====================================================================
+      // OFFLINE SESSION CACHE — lets you keep using the app after the first
+      // successful online login, without needing to log in again offline.
+      // =====================================================================
+      function cacheSession() {
+        try { localStorage.setItem('cachedApp', JSON.stringify({ userSession, employees, replacementPool, cachedAt: Date.now() })); } catch (e) {}
+      }
+
+      function tryOfflineRestore() {
+        if (navigator.onLine) return false;
+        const raw = localStorage.getItem('cachedApp');
+        if (!raw) return false;
+        try {
+          const cached = JSON.parse(raw);
+          userSession = cached.userSession;
+          employees = cached.employees || [];
+          replacementPool = cached.replacementPool || { regions: [], allStaff: [] };
+          enterApp();
+          renderStaffList();
+          showToast("Offline mode — using data from your last login.");
+          return true;
+        } catch (e) { return false; }
+      }
+
+      function restoreCachedListsIfAny() {
+        const raw = localStorage.getItem('cachedApp');
+        if (!raw) return;
+        try {
+          const cached = JSON.parse(raw);
+          if ((!employees || employees.length === 0) && cached.employees) { employees = cached.employees; renderStaffList(); }
+          if ((!replacementPool.regions || replacementPool.regions.length === 0) && cached.replacementPool) { replacementPool = cached.replacementPool; }
+        } catch (e) {}
+      }
+
+      // =====================================================================
+
+      function login() {
+        const u = document.getElementById('user').value, p = document.getElementById('pass').value;
+        if(!u || !p) return alert("Fill credentials");
+        if (!navigator.onLine) return alert("First login needs an internet connection. Once you've logged in once, the app works offline.");
+        const btn = document.getElementById('loginBtn'); btn.disabled = true; btn.innerText = "Authenticating...";
+        apiCall('login', { user: u, pass: p }).then((res) => {
+          btn.disabled = false; btn.innerText = "Log In";
+          if (res.status === "Success") {
+            userSession = res;
+            enterApp();
+            loadData();
+          } else alert(res.message);
+        }).catch(() => {
+          btn.disabled = false; btn.innerText = "Log In";
+          alert("Could not reach the server. Check your connection and try again.");
+        });
+      }
+
+      function enterApp() {
+        document.getElementById('mainComp').innerText = userSession.comp;
+        document.getElementById('subRegionSite').innerText = `${userSession.reg} – ${userSession.site}`;
+        document.getElementById('loginView').classList.add('hidden');
+        document.getElementById('appView').classList.remove('hidden');
+        document.getElementById('regDate').valueAsDate = new Date();
+        updateConnBadge();
+        updateSyncBadge();
+      }
+
+      function loadData() {
+        apiCall('getStaff', { comp: userSession.comp, reg: userSession.reg, site: userSession.site })
+          .then((data) => { employees = data; renderStaffList(); cacheSession(); })
+          .catch(() => restoreCachedListsIfAny());
+        apiCall('getReplacementPool', {})
+          .then((pool) => { replacementPool = pool; cacheSession(); })
+          .catch(() => restoreCachedListsIfAny());
+      }
+
+      function renderStaffList() {
+        const list = document.getElementById('staffList');
+        if (employees.length === 0) { list.innerHTML = `<div class="loading-msg">No staff found.</div>`; return; }
+        list.innerHTML = "";
+        employees.forEach((emp, i) => {
+          if(!registerState[i]) registerState[i] = { status: "unmarked", absentReason: "", replacementRegion: "", replacement: "", lateDuration: "" };
+          const s = registerState[i].status;
+          let rowHtml = `
+            <div class="emp-row">
+              <div class="emp-flex">
+                <div>
+                  <div style="font-weight:700; font-size:14px; color:var(--navy);">${emp.name}${s === 'Late' ? '<span class="status-tag">Late '+registerState[i].lateDuration+'</span>' : ''}</div>
+                  <div style="font-size:10px; color:var(--slate);">${emp.title}</div>
+                </div>
+                <div class="btn-group"><button class="btn-toggle ${s === 'Present' || s === 'Late' ? 'active-present' : ''}" onclick="setS(${i}, 'Present')">P</button><button class="btn-toggle ${s === 'Absent' ? 'active-absent' : ''}" onclick="setS(${i}, 'Absent')">A</button></div>
+              </div>`;
+          if (s === 'Absent') {
+            rowHtml += `
+              <div class="absence-box">
+                <label>Reason</label>
+                <select id="abs_reason_${i}" onchange="updateAbsData(${i})">
+                  <option value="">-- Choose Reason --</option>
+                  <option value="Sick">Sick Leave</option><option value="Family">Family Responsibility</option><option value="AWOL">AWOL</option><option value="Other">Other</option>
+                </select>
+                <label>Replacement Region</label>
+                <select class="replacement-select" id="rep_region_${i}" onchange="populateReplacements(${i})">
+                   <option value="">-- Select Region --</option>${replacementPool.regions.map(r => `<option value="${r}">${r}</option>`).join('')}
+                </select>
+                <label>Replacement Name</label>
+                <select class="replacement-select" id="replacement_${i}" onchange="updateAbsData(${i})"><option value="">-- Select Person --</option></select>
+              </div>`;
+          }
+          rowHtml += `</div>`; list.innerHTML += rowHtml;
+
+          if(s === 'Absent') {
+            setTimeout(() => {
+              if(document.getElementById(`abs_reason_${i}`)) document.getElementById(`abs_reason_${i}`).value = registerState[i].absentReason;
+              if(document.getElementById(`rep_region_${i}`)) {
+                document.getElementById(`rep_region_${i}`).value = registerState[i].replacementRegion;
+                if(registerState[i].replacementRegion) {
+                   populateReplacements(i, true);
+                   document.getElementById(`replacement_${i}`).value = registerState[i].replacement;
+                }
+              }
+            }, 0);
+          }
+        });
+        updateStats();
+      }
+
+      function populateReplacements(i, isRestoring = false) {
+        const region = document.getElementById(`rep_region_${i}`).value;
+        if(!isRestoring) registerState[i].replacementRegion = region;
+        const repSelect = document.getElementById(`replacement_${i}`);
+        repSelect.innerHTML = '<option value="">-- Select Person --</option>';
+        replacementPool.allStaff.filter(s => s.region === region).forEach(s => { let opt = document.createElement('option'); opt.value = s.name; opt.text = s.name; repSelect.add(opt); });
+      }
+
+      function setS(i, s) {
+        registerState[i].status = s;
+        if(s !== 'Absent') { registerState[i].replacement = ""; registerState[i].replacementRegion = ""; registerState[i].absentReason = ""; registerState[i].lateDuration = ""; }
+        renderStaffList();
+      }
+
+      function updateAbsData(i) {
+        if(document.getElementById(`abs_reason_${i}`)) registerState[i].absentReason = document.getElementById(`abs_reason_${i}`).value;
+        if(document.getElementById(`replacement_${i}`)) registerState[i].replacement = document.getElementById(`replacement_${i}`).value;
+      }
+
+      function updateStats() {
+        let p = 0, a = 0; Object.values(registerState).forEach(r => { if(r.status === 'Present' || r.status === 'Late') p++; if(r.status === 'Absent') a++; });
+        document.getElementById('cntP').innerText = p; document.getElementById('cntA').innerText = a;
+        document.getElementById('staffLabel').innerText = (p > 0) ? "GROUP PHOTO REQUIRED" : "GROUP PHOTO";
+      }
+
+      function populateLateDropdown() {
+        const select = document.getElementById('lateEmpSelect'); select.innerHTML = '<option value="">-- Choose Employee --</option>';
+        employees.forEach((emp, i) => { if(registerState[i].status === 'Absent') { let op = document.createElement('option'); op.value = i; op.text = emp.name; select.appendChild(op); }});
+      }
+
+      function updateLateCalc() {
+        const arrival = document.getElementById('arrivalTime').value; const shiftStart = document.getElementById('shift').value.split('-')[0];
+        if(!arrival) return; const getMins = (t) => { const [h, m] = t.split(':').map(Number); return (h*60)+m; };
+        const aMins = getMins(arrival), sMins = getMins(shiftStart), cutoff = sMins + 30;
+        const sEl = document.getElementById('lateStatus'), dEl = document.getElementById('lateDuration');
+        if (aMins <= cutoff) { sEl.innerText = "ON TIME"; sEl.style.color = "var(--present-green)"; dEl.innerText = "0 Mins"; dEl.dataset.mins = 0; dEl.dataset.status = "Present"; }
+        else { const diff = aMins - cutoff; sEl.innerText = "LATE ARRIVAL"; sEl.style.color = "var(--absent-red)"; dEl.innerText = diff + " Mins"; dEl.dataset.mins = diff; dEl.dataset.status = "Late"; }
+      }
+
+      function resetLateUI() { document.getElementById('arrivalTime').value = ""; document.getElementById('lateReason').value = ""; document.getElementById('lateStatus').innerText = ""; document.getElementById('lateDuration').innerText = ""; }
+
+      function submitLate() {
+        const idx = document.getElementById('lateEmpSelect').value; const durData = document.getElementById('lateDuration').dataset; if(!idx || !durData.status) return alert("Select staff and time.");
+
+        registerState[idx].status = durData.status;
+        registerState[idx].lateDuration = durData.mins + " mins";
+        registerState[idx].replacement = "";
+        registerState[idx].replacementRegion = "";
+        registerState[idx].absentReason = "";
+
+        const payload = { idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+
+        const queueId = `late_${idx}_${Date.now()}`;
+        apiCallOrQueue('commit', { payload, isLateEntry: true, skipEmail: true }, queueId, 'late', () => {
+          showToast("Sync Successful");
+        }).then((outcome) => {
+          lateRecordsLog.push(payload);
+          if (outcome.queued) showToast("No connection – saved offline. Will send automatically.");
+          renderLateLog(); resetLateUI(); populateLateDropdown(); renderStaffList();
+        });
+      }
+
+      function renderLateLog() {
+        const container = document.getElementById('lateLogContainer'); const body = document.getElementById('lateLogBody'); container.classList.remove('hidden'); body.innerHTML = "";
+        lateRecordsLog.forEach((rec, idx) => { body.innerHTML += `<tr><td style="padding:8px; border-bottom:1px solid #eee;">${rec.empName}</td><td style="text-align:center;">${rec.duration}m</td><td style="text-align:center;"><button class="btn-reset" onclick="resetLateRecord(${idx})">Reset</button></td></tr>`; });
+      }
+
+      function resetLateRecord(logIdx) {
+        const record = lateRecordsLog[logIdx];
+        registerState[record.idx].status = 'Absent';
+        registerState[record.idx].lateDuration = "";
+        registerState[record.idx].replacement = "";
+        registerState[record.idx].replacementRegion = "";
+        lateRecordsLog.splice(logIdx, 1);
+        renderLateLog(); renderStaffList(); populateLateDropdown();
+      }
+
+      function overlayStamp(img, canvas, callback) {
+        const ctx = canvas.getContext('2d'); canvas.width = 400; canvas.height = 300; ctx.drawImage(img, 0, 0, 400, 300); ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(0, 260, 400, 40); ctx.fillStyle = "white"; ctx.font = "11px Inter, Arial"; const ts = new Date().toLocaleString(); ctx.fillText(`${currentLocation} | ${ts}`, 10, 285); callback(canvas.toDataURL('image/jpeg', 0.4));
+      }
+      function handleFile(input, prevId, dataId) {
+        const file = input.files[0]; if (!file) return; const reader = new FileReader();
+        reader.onload = (e) => { const img = new Image(); img.onload = () => { overlayStamp(img, document.getElementById('canvas'), (stampedData) => { document.getElementById(prevId).src = stampedData; document.getElementById(prevId).classList.remove('hidden'); document.getElementById(dataId).value = stampedData; if(prevId === 'supPrev') document.getElementById('supLabel').classList.add('hidden'); }); }; img.src = e.target.result; }; reader.readAsDataURL(file);
+      }
+      function handleStaffFiles(input) {
+        if(input.files.length > 0) { const reader = new FileReader(); reader.onload = (e) => { const img = new Image(); img.onload = () => { overlayStamp(img, document.getElementById('canvas'), (stampedData) => { document.getElementById('staffPrev').src = stampedData; document.getElementById('staffPrev').classList.remove('hidden'); document.getElementById('staffData').value = stampedData; document.getElementById('staffLabel').classList.add('hidden'); hasGroupPhoto = true; }); }; img.src = e.target.result; }; reader.readAsDataURL(input.files[0]); }
+      }
+
+      function submitRegister() {
+        const pCount = parseInt(document.getElementById('cntP').innerText); const signOff = document.getElementById('signOffName').value;
+        if (pCount > 0 && !hasGroupPhoto) return alert("Group photo required.");
+        if (!signOff) return alert("Sign off name required.");
+        const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration }));
+        if(final.some(r => r.status === 'unmarked')) return alert("Mark all staff.");
+        if(final.some(r => r.status === 'Absent' && (!r.absentReason || !r.replacement))) return alert("Absent staff require Reason AND Replacement.");
+        const btn = document.getElementById('regSubmitBtn'); btn.disabled = true; btn.innerText = "Syncing...";
+        const payload = { ...userSession, date: document.getElementById('regDate').value, shift: document.getElementById('shift').value, records: final, supPhoto: document.getElementById('supData').value, staffPhoto: document.getElementById('staffData').value, staffPhotoCount: 1, signOffName: signOff, loggedUser: userSession.user, editFirstRow: sessionFirstRow };
+
+        apiCallOrQueue('commit', { payload, isLateEntry: false, skipEmail: false }, 'register_pending', 'register', (res) => {
+          if (res && res.status === "Success") { sessionFirstRow = res.firstRow; showToast("Report Sent!"); }
+          else if (res) { alert(res.message); }
+        }).then((outcome) => {
+          btn.disabled = false;
+          if (outcome.queued) {
+            btn.innerText = "Queued – will send when online";
+            showToast("No connection – saved offline. Will send automatically.");
+          } else if (outcome.result && outcome.result.status === "Success") {
+            btn.innerText = "Update & Resend Email";
+          } else {
+            btn.innerText = "Submit Register";
+          }
+        });
+      }
+
+      // =====================================================================
+      // STARTUP
+      // =====================================================================
+      window.addEventListener('load', () => {
+        fetchLocation();
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        }
+        updateConnBadge();
+        if (!tryOfflineRestore()) {
+          // normal online login flow — nothing else to do here
+        }
+        updateSyncBadge();
+        flushQueue();
+      });
+    </script>
+    <div id="dataStore" class="hidden"><input type="hidden" id="staffData"></div>
+  </body>
+</html>
