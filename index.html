@@ -21,6 +21,7 @@
       label { display: block; font-weight: 700; margin-top: 14px; font-size: 10px; color: var(--navy); text-transform: uppercase; }
       input, select, textarea { width: 100%; padding: 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; font-size: 15px; box-sizing: border-box; outline: none; background: #F8FAFC; }
       input:disabled, select:disabled { background: #EDF0F3; color: var(--slate); opacity: 0.85; cursor: not-allowed; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
       .stats-bar { display: flex; gap: 12px; margin: 20px 0; }
       .stat-item { flex: 1; text-align: center; padding: 14px; background: #F8FAFC; border: 1px solid var(--border); border-radius: 12px; }
       .stat-val { display: block; font-size: 22px; font-weight: 800; color: var(--navy); }
@@ -125,7 +126,7 @@
             </div>
             <label>Reason</label><textarea id="lateReason" placeholder="Explain the delay..."></textarea>
           </div>
-          <button class="btn-main" onclick="submitLate()">Confirm Lateness</button>
+          <button class="btn-main" id="lateSubmitBtn" onclick="submitLate()">Confirm Lateness</button>
  
           <div id="lateLogContainer" class="hidden" style="margin-top:24px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
@@ -150,6 +151,17 @@
       let userSession = {}; let employees = []; let registerState = {}; let hasGroupPhoto = false; let sessionFirstRow = null;
       let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = [];
       let currentLocation = "Location: Fetching...";
+      let registerSubmitLock = false; // prevents double-clicks/duplicate taps from firing two separate submissions
+      let lateSubmitLock = false;
+ 
+      /** Generates a unique ID for a submission attempt. The SAME id is reused across
+       *  automatic retries of that one submission (via the offline queue), so the server
+       *  can recognize a retry and avoid sending a duplicate email. A genuinely new manual
+       *  submit click always gets a fresh id. */
+      function generateId() {
+        if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+        return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+      }
  
       function fetchLocation() {
         if (navigator.geolocation) {
@@ -165,6 +177,7 @@
       function logout() {
         localStorage.removeItem('lastActiveUser'); // keeps cachedApp_<user> intact so this user can still log in offline next time
         userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = [];
+        registerSubmitLock = false; lateSubmitLock = false;
         document.getElementById('appView').classList.add('hidden');
         document.getElementById('loginView').classList.remove('hidden');
         document.getElementById('user').value = ""; document.getElementById('pass').value = "";
@@ -193,7 +206,7 @@
       function apiCall(action, data = {}) {
         return new Promise((resolve, reject) => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12000); // don't hang forever
+          const timeout = setTimeout(() => controller.abort(), 55000); // generous — commit runs PDF generation + email sending server-side, which can take a while
           fetch(APPS_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
@@ -314,12 +327,21 @@
           const items = await queueGetAll();
           for (const item of items) {
             try {
+              // NOTE: item.data.payload.submissionId is preserved unchanged across retries,
+              // so if a prior attempt actually succeeded server-side, the server detects the
+              // duplicate and returns the existing row instead of re-sending the email.
               const res = await apiCall(item.action, item.data);
               await queueDelete(item.id);
               if (item.type === 'register' && res && res.status === 'Success') {
                 sessionFirstRow = res.firstRow;
                 const btn = document.getElementById('regSubmitBtn');
-                if (btn) btn.innerText = "Update & Resend Email";
+                if (btn) { btn.innerText = "Update & Resend Email"; btn.disabled = false; }
+                registerSubmitLock = false;
+              }
+              if (item.type === 'late' && res && res.status === 'Success') {
+                const btn = document.getElementById('lateSubmitBtn');
+                if (btn) btn.disabled = false;
+                lateSubmitLock = false;
               }
             } catch (e) { /* still offline / failed — leave it queued, retry next pass */ }
           }
@@ -556,7 +578,11 @@
       function resetLateUI() { document.getElementById('arrivalTime').value = ""; document.getElementById('lateReason').value = ""; document.getElementById('lateStatus').innerText = ""; document.getElementById('lateDuration').innerText = ""; }
  
       function submitLate() {
+        if (lateSubmitLock) return; // guard against rapid double-taps firing two separate submissions
         const idx = document.getElementById('lateEmpSelect').value; const durData = document.getElementById('lateDuration').dataset; if(!idx || !durData.status) return alert("Select staff and time.");
+ 
+        lateSubmitLock = true;
+        const btn = document.getElementById('lateSubmitBtn'); btn.disabled = true;
  
         registerState[idx].status = durData.status;
         registerState[idx].lateDuration = durData.mins + " mins";
@@ -564,14 +590,16 @@
         registerState[idx].replacementRegion = "";
         registerState[idx].absentReason = "";
  
-        const payload = { idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+        const submissionId = generateId(); // reused across any automatic retries of THIS click only
+        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
  
         const queueId = `late_${idx}_${Date.now()}`;
         apiCallOrQueue('commit', { payload, isLateEntry: true, skipEmail: true }, queueId, 'late', () => {
           showToast("Sync Successful");
         }).then((outcome) => {
           lateRecordsLog.push(payload);
-          if (outcome.queued) showToast("No connection – saved offline. Will send automatically.");
+          if (outcome.queued) { showToast("No connection – saved offline. Will send automatically."); }
+          else { btn.disabled = false; lateSubmitLock = false; }
           renderLateLog(); resetLateUI(); populateLateDropdown(); renderStaffList();
         });
       }
@@ -603,27 +631,35 @@
       }
  
       function submitRegister() {
+        if (registerSubmitLock) return; // guard against rapid double-taps firing two separate submissions
         const pCount = parseInt(document.getElementById('cntP').innerText); const signOff = document.getElementById('signOffName').value;
         if (pCount > 0 && !hasGroupPhoto) return alert("Group photo required.");
         if (!signOff) return alert("Sign off name required.");
         const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration }));
         if(final.some(r => r.status === 'unmarked')) return alert("Mark all staff.");
         if(final.some(r => r.status === 'Absent' && (!r.absentReason || !r.replacement))) return alert("Absent staff require Reason AND Replacement.");
+
+        registerSubmitLock = true;
         const btn = document.getElementById('regSubmitBtn'); btn.disabled = true; btn.innerText = "Syncing...";
-        const payload = { ...userSession, date: document.getElementById('regDate').value, shift: document.getElementById('shift').value, records: final, supPhoto: document.getElementById('supData').value, staffPhoto: document.getElementById('staffData').value, staffPhotoCount: 1, signOffName: signOff, loggedUser: userSession.user, editFirstRow: sessionFirstRow };
+        const submissionId = generateId(); // reused across any automatic retries of THIS click only — a fresh click for "Update & Resend" gets a new id, so it correctly sends again
+        const payload = { ...userSession, submissionId, date: document.getElementById('regDate').value, shift: document.getElementById('shift').value, records: final, supPhoto: document.getElementById('supData').value, staffPhoto: document.getElementById('staffData').value, staffPhotoCount: 1, signOffName: signOff, loggedUser: userSession.user, editFirstRow: sessionFirstRow };
  
         apiCallOrQueue('commit', { payload, isLateEntry: false, skipEmail: false }, 'register_pending', 'register', (res) => {
           if (res && res.status === "Success") { sessionFirstRow = res.firstRow; showToast("Report Sent!"); }
           else if (res) { alert(res.message); }
         }).then((outcome) => {
-          btn.disabled = false;
           if (outcome.queued) {
+            btn.disabled = true; // stays disabled/queued until flushQueue confirms sync, avoiding a second duplicate click while it's pending
             btn.innerText = "Queued – will send when online";
             showToast("No connection – saved offline. Will send automatically.");
-          } else if (outcome.result && outcome.result.status === "Success") {
-            btn.innerText = "Update & Resend Email";
           } else {
-            btn.innerText = "Submit Register";
+            btn.disabled = false;
+            registerSubmitLock = false;
+            if (outcome.result && outcome.result.status === "Success") {
+              btn.innerText = "Update & Resend Email";
+            } else {
+              btn.innerText = "Submit Register";
+            }
           }
         });
       }
