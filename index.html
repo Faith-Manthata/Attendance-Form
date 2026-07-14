@@ -223,7 +223,19 @@
           tx.objectStore(STORE_NAME).put(item);
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
-        });
+        }).then(() => requestBackgroundSync());
+      }
+
+      // Chrome/Android only — Safari/iOS has no Background Sync API, so this
+      // silently does nothing there; those devices still sync fine on next app open
+      // (the setInterval(flushQueue, 20000) safety net covers that case for everyone).
+      async function requestBackgroundSync() {
+        if ('serviceWorker' in navigator && 'SyncManager' in window) {
+          try {
+            const reg = await navigator.serviceWorker.ready;
+            await reg.sync.register('sync-attendance');
+          } catch (err) { /* not supported / registration failed — safe to ignore */ }
+        }
       }
 
       async function queueDelete(id) {
@@ -320,6 +332,23 @@
         try { localStorage.setItem('cachedApp', JSON.stringify({ userSession, employees, replacementPool, cachedAt: Date.now() })); } catch (e) {}
       }
 
+      // Saved per-user login (persists across logout) so the login SCREEN itself
+      // works offline too — not just auto-resuming the last active session.
+      function saveOfflineCredential(u, p, session) {
+        try {
+          const all = JSON.parse(localStorage.getItem('savedCredentials') || '{}');
+          all[u.toLowerCase().trim()] = { pass: p.toLowerCase().trim(), session };
+          localStorage.setItem('savedCredentials', JSON.stringify(all));
+        } catch (e) {}
+      }
+
+      function getOfflineCredential(u) {
+        try {
+          const all = JSON.parse(localStorage.getItem('savedCredentials') || '{}');
+          return all[u.toLowerCase().trim()] || null;
+        } catch (e) { return null; }
+      }
+
       function tryOfflineRestore() {
         if (navigator.onLine) return false;
         const raw = localStorage.getItem('cachedApp');
@@ -351,18 +380,42 @@
       function login() {
         const u = document.getElementById('user').value, p = document.getElementById('pass').value;
         if(!u || !p) return alert("Fill credentials");
-        if (!navigator.onLine) return alert("First login needs an internet connection. Once you've logged in once, the app works offline.");
         const btn = document.getElementById('loginBtn'); btn.disabled = true; btn.innerText = "Authenticating...";
+
+        if (!navigator.onLine) {
+          btn.disabled = false; btn.innerText = "Log In";
+          const cached = getOfflineCredential(u);
+          if (cached && cached.pass === p.toLowerCase().trim()) {
+            userSession = cached.session;
+            enterApp();
+            restoreCachedListsIfAny();
+            showToast("Offline Mode: using saved login");
+          } else {
+            alert("No internet connection, and no saved offline login found for this username/password on this device. Log in online at least once first.");
+          }
+          return;
+        }
+
         apiCall('login', { user: u, pass: p }).then((res) => {
           btn.disabled = false; btn.innerText = "Log In";
           if (res.status === "Success") {
             userSession = res;
+            saveOfflineCredential(u, p, res); // enables offline login for this user going forward
             enterApp();
             loadData();
           } else alert(res.message);
         }).catch(() => {
           btn.disabled = false; btn.innerText = "Log In";
-          alert("Could not reach the server. Check your connection and try again.");
+          // navigator.onLine said true but the request still failed — fall back to offline credentials too
+          const cached = getOfflineCredential(u);
+          if (cached && cached.pass === p.toLowerCase().trim()) {
+            userSession = cached.session;
+            enterApp();
+            restoreCachedListsIfAny();
+            showToast("Offline Mode: using saved login");
+          } else {
+            alert("Could not reach the server, and no saved offline login found for this user.");
+          }
         });
       }
 
