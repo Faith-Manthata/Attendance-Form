@@ -593,13 +593,20 @@
         const submissionId = generateId(); // reused across any automatic retries of THIS click only
         const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
  
-        const queueId = `late_${idx}_${Date.now()}`;
+        // FIX: queue key is per-employee only (no Date.now()) so resubmitting for the same
+        // employee while still offline OVERWRITES the pending item instead of creating a
+        // second duplicate queued entry for them.
+        const queueId = `late_${idx}`;
         apiCallOrQueue('commit', { payload, isLateEntry: true, skipEmail: true }, queueId, 'late', () => {
           showToast("Sync Successful");
         }).then((outcome) => {
           lateRecordsLog.push(payload);
-          if (outcome.queued) { showToast("No connection – saved offline. Will send automatically."); }
-          else { btn.disabled = false; lateSubmitLock = false; }
+          // FIX: always release the lock/button, even when queued offline — previously this
+          // stayed disabled until a real sync happened, which is impossible while offline,
+          // so a second late entry (or a correction to this one) could never be submitted.
+          btn.disabled = false;
+          lateSubmitLock = false;
+          if (outcome.queued) { showToast("No connection – saved offline. Will send automatically. You can keep logging more."); }
           renderLateLog(); resetLateUI(); populateLateDropdown(); renderStaffList();
         });
       }
@@ -648,18 +655,21 @@
           if (res && res.status === "Success") { sessionFirstRow = res.firstRow; showToast("Report Sent!"); }
           else if (res) { alert(res.message); }
         }).then((outcome) => {
+          // FIX: the button used to stay permanently disabled ("Queued – will send when
+          // online") until a real sync succeeded — impossible while offline — so there was
+          // no way to edit and resubmit. It's now re-enabled right away in both cases.
+          // Since the queue key ('register_pending') is fixed, resubmitting while still
+          // offline safely OVERWRITES the pending item with the corrected data rather than
+          // queuing a duplicate.
+          btn.disabled = false;
+          registerSubmitLock = false;
           if (outcome.queued) {
-            btn.disabled = true; // stays disabled/queued until flushQueue confirms sync, avoiding a second duplicate click while it's pending
-            btn.innerText = "Queued – will send when online";
-            showToast("No connection – saved offline. Will send automatically.");
+            btn.innerText = "Resubmit Register (Queued Offline)";
+            showToast("No connection – saved offline. You can edit and resubmit; only the latest version will be sent.");
+          } else if (outcome.result && outcome.result.status === "Success") {
+            btn.innerText = "Update & Resend Email";
           } else {
-            btn.disabled = false;
-            registerSubmitLock = false;
-            if (outcome.result && outcome.result.status === "Success") {
-              btn.innerText = "Update & Resend Email";
-            } else {
-              btn.innerText = "Submit Register";
-            }
+            btn.innerText = "Submit Register";
           }
         });
       }
