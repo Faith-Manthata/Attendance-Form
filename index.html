@@ -73,6 +73,7 @@
         <div class="tabs">
           <div id="tabReg" class="tab-btn active" onclick="switchTab('register')">Attendance</div>
           <div id="tabLate" class="tab-btn" onclick="switchTab('late')">Lateness</div>
+          <div id="tabEarly" class="tab-btn" onclick="switchTab('early')">Left Early</div>
         </div>
  
         <div id="sectionRegister">
@@ -82,6 +83,7 @@
               <select id="shift" onchange="resetLateUI()">
                 <option value="07:00-16:00">07:00 - 16:00</option>
                 <option value="08:00-17:00">08:00 - 17:00</option>
+                <option value="18:30-03:30">18:30 - 03:30 (Night)</option>
               </select>
             </div>
           </div>
@@ -135,6 +137,24 @@
             </table>
           </div>
         </div>
+
+        <div id="sectionEarly" class="hidden">
+          <label>Select Staff Member</label>
+          <select id="earlyEmpSelect" onchange="resetEarlyUI()"></select>
+          <div style="background:#F8FAFC; padding:20px; border-radius:14px; margin-top:12px; border:1px solid var(--border);">
+            <label>Time They Left</label>
+            <input type="time" id="earlyTimeLeft">
+            <label>Reason</label><textarea id="earlyReason" placeholder="Explain why they left early (e.g. sent to another site)..."></textarea>
+          </div>
+          <button class="btn-main" id="earlySubmitBtn" onclick="submitEarly()">Confirm Left Early</button>
+
+          <div id="earlyLogContainer" class="hidden" style="margin-top:24px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead><tr><th style="text-align:left; padding:8px; border-bottom:1px solid #ddd;">Name</th><th style="padding:8px; border-bottom:1px solid #ddd;">Left At</th><th style="padding:8px; border-bottom:1px solid #ddd;">Action</th></tr></thead>
+              <tbody id="earlyLogBody"></tbody>
+            </table>
+          </div>
+        </div>
  
         <button class="btn-main" style="background:#F1F5F9; color:var(--absent-red); margin-top:32px; box-shadow:none; border: 1px solid #E2E8F0;" onclick="logout()">LOGOUT</button>
       </div>
@@ -149,10 +169,11 @@
       const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzf_erZFTST-MS2LzWtT2Fy3odL5Pbvud8-jfaaWfKj52w5z-qyWRMt9OuzPMpXUjpfIg/exec";
  
       let userSession = {}; let employees = []; let registerState = {}; let hasGroupPhoto = false; let sessionFirstRow = null;
-      let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = [];
+      let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = []; let earlyRecordsLog = [];
       let currentLocation = "Location: Fetching...";
       let registerSubmitLock = false; // prevents double-clicks/duplicate taps from firing two separate submissions
       let lateSubmitLock = false;
+      let earlySubmitLock = false;
  
       /** Generates a unique ID for a submission attempt. The SAME id is reused across
        *  automatic retries of that one submission (via the offline queue), so the server
@@ -176,8 +197,8 @@
  
       function logout() {
         localStorage.removeItem('lastActiveUser'); // keeps cachedApp_<user> intact so this user can still log in offline next time
-        userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = [];
-        registerSubmitLock = false; lateSubmitLock = false;
+        userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = []; earlyRecordsLog = [];
+        registerSubmitLock = false; lateSubmitLock = false; earlySubmitLock = false;
         document.getElementById('appView').classList.add('hidden');
         document.getElementById('loginView').classList.remove('hidden');
         document.getElementById('user').value = ""; document.getElementById('pass').value = "";
@@ -187,6 +208,7 @@
         document.getElementById('staffPrev').classList.add('hidden'); document.getElementById('staffData').value = "";
         document.getElementById('supLabel').classList.remove('hidden'); document.getElementById('staffLabel').classList.remove('hidden');
         document.getElementById('lateLogContainer').classList.add('hidden');
+        document.getElementById('earlyLogContainer').classList.add('hidden');
         document.getElementById('regSubmitBtn').innerText = "Submit Register";
         showToast("Logged out.");
       }
@@ -194,9 +216,12 @@
       function switchTab(tab) {
         document.getElementById('sectionRegister').classList.toggle('hidden', tab !== 'register');
         document.getElementById('sectionLate').classList.toggle('hidden', tab !== 'late');
+        document.getElementById('sectionEarly').classList.toggle('hidden', tab !== 'early');
         document.getElementById('tabReg').classList.toggle('active', tab === 'register');
         document.getElementById('tabLate').classList.toggle('active', tab === 'late');
+        document.getElementById('tabEarly').classList.toggle('active', tab === 'early');
         if(tab === 'late') populateLateDropdown();
+        if(tab === 'early') populateEarlyDropdown();
       }
  
       // =====================================================================
@@ -342,6 +367,11 @@
                 const btn = document.getElementById('lateSubmitBtn');
                 if (btn) btn.disabled = false;
                 lateSubmitLock = false;
+              }
+              if (item.type === 'early' && res && res.status === 'Success') {
+                const btn = document.getElementById('earlySubmitBtn');
+                if (btn) btn.disabled = false;
+                earlySubmitLock = false;
               }
             } catch (e) { /* still offline / failed — leave it queued, retry next pass */ }
           }
@@ -489,16 +519,19 @@
         if (employees.length === 0) { list.innerHTML = `<div class="loading-msg">No staff found.</div>`; return; }
         list.innerHTML = "";
         employees.forEach((emp, i) => {
-          if(!registerState[i]) registerState[i] = { status: "unmarked", absentReason: "", replacementRegion: "", replacement: "", lateDuration: "" };
+          if(!registerState[i]) registerState[i] = { status: "unmarked", absentReason: "", replacementRegion: "", replacement: "", lateDuration: "", earlyTimeLeft: "", earlyReason: "" };
           const s = registerState[i].status;
+          let statusTag = "";
+          if (s === 'Late') statusTag = '<span class="status-tag">Late '+registerState[i].lateDuration+'</span>';
+          else if (s === 'Left Early') statusTag = '<span class="status-tag" style="background:#F0FFF4; color:var(--present-green); border-color:var(--present-green);">Left Early '+registerState[i].earlyTimeLeft+'</span>';
           let rowHtml = `
             <div class="emp-row">
               <div class="emp-flex">
                 <div>
-                  <div style="font-weight:700; font-size:14px; color:var(--navy);">${emp.name}${s === 'Late' ? '<span class="status-tag">Late '+registerState[i].lateDuration+'</span>' : ''}</div>
+                  <div style="font-weight:700; font-size:14px; color:var(--navy);">${emp.name}${statusTag}</div>
                   <div style="font-size:10px; color:var(--slate);">${emp.title}</div>
                 </div>
-                <div class="btn-group"><button class="btn-toggle ${s === 'Present' || s === 'Late' ? 'active-present' : ''}" onclick="setS(${i}, 'Present')">P</button><button class="btn-toggle ${s === 'Absent' ? 'active-absent' : ''}" onclick="setS(${i}, 'Absent')">A</button></div>
+                <div class="btn-group"><button class="btn-toggle ${s === 'Present' || s === 'Late' || s === 'Left Early' ? 'active-present' : ''}" onclick="setS(${i}, 'Present')">P</button><button class="btn-toggle ${s === 'Absent' ? 'active-absent' : ''}" onclick="setS(${i}, 'Absent')">A</button></div>
               </div>`;
           if (s === 'Absent') {
             rowHtml += `
@@ -545,6 +578,7 @@
  
       function setS(i, s) {
         registerState[i].status = s;
+        registerState[i].earlyTimeLeft = ""; registerState[i].earlyReason = ""; // P/A toggle always overrides any earlier "Left Early" mark
         if(s !== 'Absent') { registerState[i].replacement = ""; registerState[i].replacementRegion = ""; registerState[i].absentReason = ""; registerState[i].lateDuration = ""; }
         else { registerState[i].replacementRegion = employees[i].reg || ""; } // Default replacement region to the employee's own region
         renderStaffList();
@@ -556,7 +590,7 @@
       }
  
       function updateStats() {
-        let p = 0, a = 0; Object.values(registerState).forEach(r => { if(r.status === 'Present' || r.status === 'Late') p++; if(r.status === 'Absent') a++; });
+        let p = 0, a = 0; Object.values(registerState).forEach(r => { if(r.status === 'Present' || r.status === 'Late' || r.status === 'Left Early') p++; if(r.status === 'Absent') a++; });
         document.getElementById('cntP').innerText = p; document.getElementById('cntA').innerText = a;
         document.getElementById('staffLabel').innerText = (p > 0) ? "GROUP PHOTO REQUIRED" : "GROUP PHOTO";
       }
@@ -567,9 +601,14 @@
       }
  
       function updateLateCalc() {
-        const arrival = document.getElementById('arrivalTime').value; const shiftStart = document.getElementById('shift').value.split('-')[0];
+        const arrival = document.getElementById('arrivalTime').value; const shiftParts = document.getElementById('shift').value.split('-'); const shiftStart = shiftParts[0]; const shiftEnd = shiftParts[1];
         if(!arrival) return; const getMins = (t) => { const [h, m] = t.split(':').map(Number); return (h*60)+m; };
-        const aMins = getMins(arrival), sMins = getMins(shiftStart), cutoff = sMins + 30;
+        let aMins = getMins(arrival); const sMins = getMins(shiftStart);
+        // Night shift (e.g. 18:30-03:30) crosses midnight — an arrival time like 00:15 is actually
+        // LATER than the shift start, not earlier, so push it past midnight before comparing.
+        const isOvernightShift = getMins(shiftEnd) <= sMins;
+        if (isOvernightShift && aMins < sMins) aMins += 1440;
+        const cutoff = sMins + 30;
         const sEl = document.getElementById('lateStatus'), dEl = document.getElementById('lateDuration');
         if (aMins <= cutoff) { sEl.innerText = "ON TIME"; sEl.style.color = "var(--present-green)"; dEl.innerText = "0 Mins"; dEl.dataset.mins = 0; dEl.dataset.status = "Present"; }
         else { const diff = aMins - cutoff; sEl.innerText = "LATE ARRIVAL"; sEl.style.color = "var(--absent-red)"; dEl.innerText = diff + " Mins"; dEl.dataset.mins = diff; dEl.dataset.status = "Late"; }
@@ -626,6 +665,68 @@
         renderLateLog(); renderStaffList(); populateLateDropdown();
       }
  
+      // =====================================================================
+      // LEFT EARLY — for staff who were Present/Late but had to leave the
+      // shift early (e.g. sent to another site). Mirrors the Lateness tab.
+      // =====================================================================
+      function populateEarlyDropdown() {
+        const select = document.getElementById('earlyEmpSelect'); select.innerHTML = '<option value="">-- Choose Employee --</option>';
+        employees.forEach((emp, i) => { if(registerState[i].status === 'Present' || registerState[i].status === 'Late') { let op = document.createElement('option'); op.value = i; op.text = emp.name; select.appendChild(op); }});
+      }
+
+      function resetEarlyUI() { document.getElementById('earlyTimeLeft').value = ""; document.getElementById('earlyReason').value = ""; }
+
+      function submitEarly() {
+        if (earlySubmitLock) return; // guard against rapid double-taps firing two separate submissions
+        const idx = document.getElementById('earlyEmpSelect').value;
+        const timeLeft = document.getElementById('earlyTimeLeft').value;
+        const reason = document.getElementById('earlyReason').value;
+        if(!idx || !timeLeft) return alert("Select staff and the time they left.");
+        if(!reason) return alert("A reason is required.");
+
+        earlySubmitLock = true;
+        const btn = document.getElementById('earlySubmitBtn'); btn.disabled = true;
+
+        registerState[idx].status = 'Left Early';
+        registerState[idx].earlyTimeLeft = timeLeft;
+        registerState[idx].earlyReason = reason;
+        registerState[idx].replacement = "";
+        registerState[idx].replacementRegion = "";
+        registerState[idx].absentReason = "";
+        registerState[idx].lateDuration = "";
+
+        const submissionId = generateId(); // reused across any automatic retries of THIS click only
+        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, timeLeft: timeLeft, reason: reason, loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+
+        // Queue key is per-employee only, so resubmitting for the same employee while
+        // still offline OVERWRITES the pending item instead of creating a duplicate,
+        // matching the same fix applied to the Lateness tab.
+        const queueId = `early_${idx}`;
+        apiCallOrQueue('commit', { payload, isEarlyEntry: true, skipEmail: true }, queueId, 'early', () => {
+          showToast("Sync Successful");
+        }).then((outcome) => {
+          earlyRecordsLog.push(payload);
+          btn.disabled = false;
+          earlySubmitLock = false;
+          if (outcome.queued) { showToast("No connection – saved offline. Will send automatically. You can keep logging more."); }
+          renderEarlyLog(); resetEarlyUI(); populateEarlyDropdown(); renderStaffList();
+        });
+      }
+
+      function renderEarlyLog() {
+        const container = document.getElementById('earlyLogContainer'); const body = document.getElementById('earlyLogBody'); container.classList.remove('hidden'); body.innerHTML = "";
+        earlyRecordsLog.forEach((rec, idx) => { body.innerHTML += `<tr><td style="padding:8px; border-bottom:1px solid #eee;">${rec.empName}</td><td style="text-align:center;">${rec.timeLeft}</td><td style="text-align:center;"><button class="btn-reset" onclick="resetEarlyRecord(${idx})">Reset</button></td></tr>`; });
+      }
+
+      function resetEarlyRecord(logIdx) {
+        const record = earlyRecordsLog[logIdx];
+        registerState[record.idx].status = 'Present';
+        registerState[record.idx].earlyTimeLeft = "";
+        registerState[record.idx].earlyReason = "";
+        earlyRecordsLog.splice(logIdx, 1);
+        renderEarlyLog(); renderStaffList(); populateEarlyDropdown();
+      }
+
       function overlayStamp(img, canvas, callback) {
         const ctx = canvas.getContext('2d'); canvas.width = 400; canvas.height = 300; ctx.drawImage(img, 0, 0, 400, 300); ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(0, 260, 400, 40); ctx.fillStyle = "white"; ctx.font = "11px Inter, Arial"; const ts = new Date().toLocaleString(); ctx.fillText(`${currentLocation} | ${ts}`, 10, 285); callback(canvas.toDataURL('image/jpeg', 0.4));
       }
@@ -642,7 +743,7 @@
         const pCount = parseInt(document.getElementById('cntP').innerText); const signOff = document.getElementById('signOffName').value;
         if (pCount > 0 && !hasGroupPhoto) return alert("Group photo required.");
         if (!signOff) return alert("Sign off name required.");
-        const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration }));
+        const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration, earlyTimeLeft: registerState[i].earlyTimeLeft, earlyReason: registerState[i].earlyReason }));
         if(final.some(r => r.status === 'unmarked')) return alert("Mark all staff.");
         if(final.some(r => r.status === 'Absent' && (!r.absentReason || !r.replacement))) return alert("Absent staff require Reason AND Replacement.");
 
