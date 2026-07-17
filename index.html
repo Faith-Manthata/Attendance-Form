@@ -79,14 +79,18 @@
         <div id="sectionRegister">
           <div style="display:flex; gap:12px;">
             <div style="flex:1;"><label>Date</label><input type="date" id="regDate"></div>
-            <div style="flex:1;"><label>Shift</label>
-              <select id="shift" onchange="resetLateUI()">
-                <option value="07:00-16:00">07:00 - 16:00</option>
-                <option value="08:00-17:00">08:00 - 17:00</option>
-                <option value="18:30-03:30">18:30 - 03:30 (Night)</option>
+            <div style="flex:1;"><label>Shift Type</label>
+              <select id="shiftType" onchange="resetLateUI()">
+                <option value="Day">Day Shift</option>
+                <option value="Night">Night Shift</option>
               </select>
             </div>
           </div>
+          <div style="display:flex; gap:12px;">
+            <div style="flex:1;"><label>Start Shift</label><input type="time" id="shiftStartTime" onchange="updateShiftValue()"></div>
+            <div style="flex:1;"><label>End Shift</label><input type="time" id="shiftEndTime" onchange="updateShiftValue()"></div>
+          </div>
+          <input type="hidden" id="shift" value="">
           <div class="stats-bar">
             <div class="stat-item"><span class="stat-val" id="cntP">0</span><span class="stat-label">Present/Late</span></div>
             <div class="stat-item"><span class="stat-val" id="cntA" style="color:var(--absent-red)">0</span><span class="stat-label">Absent</span></div>
@@ -209,6 +213,7 @@
         document.getElementById('supLabel').classList.remove('hidden'); document.getElementById('staffLabel').classList.remove('hidden');
         document.getElementById('lateLogContainer').classList.add('hidden');
         document.getElementById('earlyLogContainer').classList.add('hidden');
+        document.getElementById('shiftStartTime').value = ""; document.getElementById('shiftEndTime').value = ""; document.getElementById('shift').value = ""; document.getElementById('shiftType').value = "Day";
         document.getElementById('regSubmitBtn').innerText = "Submit Register";
         showToast("Logged out.");
       }
@@ -615,6 +620,16 @@
       }
  
       function resetLateUI() { document.getElementById('arrivalTime').value = ""; document.getElementById('lateReason').value = ""; document.getElementById('lateStatus').innerText = ""; document.getElementById('lateDuration').innerText = ""; }
+
+      /** Keeps the hidden #shift field ("HH:MM-HH:MM") in sync with the separate
+       *  Start Shift / End Shift time inputs, so all existing shift-parsing logic
+       *  (split('-'), late calc, payloads, etc.) keeps working unchanged. */
+      function updateShiftValue() {
+        const start = document.getElementById('shiftStartTime').value;
+        const end = document.getElementById('shiftEndTime').value;
+        document.getElementById('shift').value = (start && end) ? `${start}-${end}` : "";
+        resetLateUI();
+      }
  
       function submitLate() {
         if (lateSubmitLock) return; // guard against rapid double-taps firing two separate submissions
@@ -630,7 +645,7 @@
         registerState[idx].absentReason = "";
  
         const submissionId = generateId(); // reused across any automatic retries of THIS click only
-        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, arrivalTime: document.getElementById('arrivalTime').value, shiftStart: document.getElementById('shift').value.split('-')[0], shiftType: document.getElementById('shiftType').value, status: durData.status, duration: durData.mins, reason: document.getElementById('lateReason').value || "Grace Period", loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
  
         // FIX: queue key is per-employee only (no Date.now()) so resubmitting for the same
         // employee while still offline OVERWRITES the pending item instead of creating a
@@ -696,7 +711,7 @@
         registerState[idx].lateDuration = "";
 
         const submissionId = generateId(); // reused across any automatic retries of THIS click only
-        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, timeLeft: timeLeft, reason: reason, loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+        const payload = { submissionId, idx: idx, date: document.getElementById('regDate').value, empName: employees[idx].name, timeLeft: timeLeft, reason: reason, shiftType: document.getElementById('shiftType').value, loggedUser: userSession.user, signOffName: document.getElementById('signOffName').value, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
 
         // Queue key is per-employee only, so resubmitting for the same employee while
         // still offline OVERWRITES the pending item instead of creating a duplicate,
@@ -741,6 +756,7 @@
       function submitRegister() {
         if (registerSubmitLock) return; // guard against rapid double-taps firing two separate submissions
         const pCount = parseInt(document.getElementById('cntP').innerText); const signOff = document.getElementById('signOffName').value;
+        if (!document.getElementById('shiftStartTime').value || !document.getElementById('shiftEndTime').value) return alert("Start Shift and End Shift are required.");
         if (pCount > 0 && !hasGroupPhoto) return alert("Group photo required.");
         if (!signOff) return alert("Sign off name required.");
         const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration, earlyTimeLeft: registerState[i].earlyTimeLeft, earlyReason: registerState[i].earlyReason }));
@@ -750,7 +766,7 @@
         registerSubmitLock = true;
         const btn = document.getElementById('regSubmitBtn'); btn.disabled = true; btn.innerText = "Syncing...";
         const submissionId = generateId(); // reused across any automatic retries of THIS click only — a fresh click for "Update & Resend" gets a new id, so it correctly sends again
-        const payload = { ...userSession, submissionId, date: document.getElementById('regDate').value, shift: document.getElementById('shift').value, records: final, supPhoto: document.getElementById('supData').value, staffPhoto: document.getElementById('staffData').value, staffPhotoCount: 1, signOffName: signOff, loggedUser: userSession.user, editFirstRow: sessionFirstRow };
+        const payload = { ...userSession, submissionId, date: document.getElementById('regDate').value, shift: document.getElementById('shift').value, shiftType: document.getElementById('shiftType').value, records: final, supPhoto: document.getElementById('supData').value, staffPhoto: document.getElementById('staffData').value, staffPhotoCount: 1, signOffName: signOff, loggedUser: userSession.user, editFirstRow: sessionFirstRow };
  
         apiCallOrQueue('commit', { payload, isLateEntry: false, skipEmail: false }, 'register_pending', 'register', (res) => {
           if (res && res.status === "Success") { sessionFirstRow = res.firstRow; showToast("Report Sent!"); }
