@@ -786,7 +786,10 @@
         // overwrites the pending item instead of creating a duplicate.
         const queueId = `endshift_${date}`;
         apiCallOrQueue('endShift', { payload }, queueId, 'endshift', (res) => {
-          if (res && res.status === "Success") { showToast(`End Shift recorded for ${res.updatedRows} staff.`); }
+          if (res && res.status === "Success") {
+            if (res.duplicate) { showToast("End Shift already recorded — summary was already sent."); }
+            else { showToast(`End Shift recorded — ${res.presentCount} present, ${res.notPresentCount} not present. Summary emailed.`); }
+          }
           else if (res) { alert(res.message); }
         }).then((outcome) => {
           btn.disabled = false;
