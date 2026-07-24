@@ -74,6 +74,7 @@
           <div id="tabReg" class="tab-btn active" onclick="switchTab('register')">Attendance</div>
           <div id="tabLate" class="tab-btn" onclick="switchTab('late')">Lateness</div>
           <div id="tabEarly" class="tab-btn" onclick="switchTab('early')">Left Early</div>
+          <div id="tabEndShift" class="tab-btn" onclick="switchTab('endshift')">End Shift</div>
         </div>
  
         <div id="sectionRegister">
@@ -88,7 +89,6 @@
           </div>
           <div style="display:flex; gap:12px;">
             <div style="flex:1;"><label>Start Shift</label><input type="time" id="shiftStartTime" onchange="updateShiftValue()"></div>
-            <div style="flex:1;"><label>End Shift</label><input type="time" id="shiftEndTime" onchange="updateShiftValue()"></div>
           </div>
           <input type="hidden" id="shift" value="">
           <div class="stats-bar">
@@ -160,6 +160,15 @@
           </div>
         </div>
  
+        <div id="sectionEndShift" class="hidden">
+          <div style="background:#F8FAFC; padding:20px; border-radius:14px; margin-top:12px; border:1px solid var(--border);">
+            <p style="margin:0 0 4px; font-size:12px;">Closes out the shift dated on the Attendance tab (<span id="endShiftDateLabel">—</span>) for this site — fill this in once the shift has actually ended.</p>
+            <label>End Shift Time</label>
+            <input type="time" id="shiftEndTime">
+          </div>
+          <button class="btn-main" id="endShiftSubmitBtn" onclick="submitEndShift()">Submit End Shift</button>
+        </div>
+ 
         <button class="btn-main" style="background:#F1F5F9; color:var(--absent-red); margin-top:32px; box-shadow:none; border: 1px solid #E2E8F0;" onclick="logout()">LOGOUT</button>
       </div>
     </div>
@@ -178,6 +187,7 @@
       let registerSubmitLock = false; // prevents double-clicks/duplicate taps from firing two separate submissions
       let lateSubmitLock = false;
       let earlySubmitLock = false;
+      let endShiftSubmitLock = false;
  
       /** Generates a unique ID for a submission attempt. The SAME id is reused across
        *  automatic retries of that one submission (via the offline queue), so the server
@@ -202,7 +212,7 @@
       function logout() {
         localStorage.removeItem('lastActiveUser'); // keeps cachedApp_<user> intact so this user can still log in offline next time
         userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = []; earlyRecordsLog = [];
-        registerSubmitLock = false; lateSubmitLock = false; earlySubmitLock = false;
+        registerSubmitLock = false; lateSubmitLock = false; earlySubmitLock = false; endShiftSubmitLock = false;
         document.getElementById('appView').classList.add('hidden');
         document.getElementById('loginView').classList.remove('hidden');
         document.getElementById('user').value = ""; document.getElementById('pass').value = "";
@@ -214,6 +224,7 @@
         document.getElementById('lateLogContainer').classList.add('hidden');
         document.getElementById('earlyLogContainer').classList.add('hidden');
         document.getElementById('shiftStartTime').value = ""; document.getElementById('shiftEndTime').value = ""; document.getElementById('shift').value = ""; document.getElementById('shiftType').value = "Day";
+        document.getElementById('endShiftSubmitBtn').innerText = "Submit End Shift"; document.getElementById('endShiftSubmitBtn').disabled = false;
         document.getElementById('regSubmitBtn').innerText = "Submit Register";
         showToast("Logged out.");
       }
@@ -222,11 +233,14 @@
         document.getElementById('sectionRegister').classList.toggle('hidden', tab !== 'register');
         document.getElementById('sectionLate').classList.toggle('hidden', tab !== 'late');
         document.getElementById('sectionEarly').classList.toggle('hidden', tab !== 'early');
+        document.getElementById('sectionEndShift').classList.toggle('hidden', tab !== 'endshift');
         document.getElementById('tabReg').classList.toggle('active', tab === 'register');
         document.getElementById('tabLate').classList.toggle('active', tab === 'late');
         document.getElementById('tabEarly').classList.toggle('active', tab === 'early');
+        document.getElementById('tabEndShift').classList.toggle('active', tab === 'endshift');
         if(tab === 'late') populateLateDropdown();
         if(tab === 'early') populateEarlyDropdown();
+        if(tab === 'endshift') document.getElementById('endShiftDateLabel').innerText = document.getElementById('regDate').value || "—";
       }
  
       // =====================================================================
@@ -378,6 +392,11 @@
                 if (btn) btn.disabled = false;
                 earlySubmitLock = false;
               }
+              if (item.type === 'endshift' && res && res.status === 'Success') {
+                const btn = document.getElementById('endShiftSubmitBtn');
+                if (btn) { btn.disabled = false; btn.innerText = "Submit End Shift"; }
+                endShiftSubmitLock = false;
+              }
             } catch (e) { /* still offline / failed — leave it queued, retry next pass */ }
           }
         } finally {
@@ -524,7 +543,7 @@
         if (employees.length === 0) { list.innerHTML = `<div class="loading-msg">No staff found.</div>`; return; }
         list.innerHTML = "";
         employees.forEach((emp, i) => {
-          if(!registerState[i]) registerState[i] = { status: "unmarked", absentReason: "", replacementRegion: "", replacement: "", lateDuration: "", earlyTimeLeft: "", earlyReason: "" };
+          if(!registerState[i]) registerState[i] = { status: "unmarked", absentReason: "", replacementRegion: "", replacement: "", lateDuration: "", lateReason: "", earlyTimeLeft: "", earlyReason: "" };
           const s = registerState[i].status;
           let statusTag = "";
           if (s === 'Late') statusTag = '<span class="status-tag">Late '+registerState[i].lateDuration+'</span>';
@@ -584,7 +603,7 @@
       function setS(i, s) {
         registerState[i].status = s;
         registerState[i].earlyTimeLeft = ""; registerState[i].earlyReason = ""; // P/A toggle always overrides any earlier "Left Early" mark
-        if(s !== 'Absent') { registerState[i].replacement = ""; registerState[i].replacementRegion = ""; registerState[i].absentReason = ""; registerState[i].lateDuration = ""; }
+        if(s !== 'Absent') { registerState[i].replacement = ""; registerState[i].replacementRegion = ""; registerState[i].absentReason = ""; registerState[i].lateDuration = ""; registerState[i].lateReason = ""; }
         else { registerState[i].replacementRegion = employees[i].reg || ""; } // Default replacement region to the employee's own region
         renderStaffList();
       }
@@ -606,12 +625,13 @@
       }
  
       function updateLateCalc() {
-        const arrival = document.getElementById('arrivalTime').value; const shiftParts = document.getElementById('shift').value.split('-'); const shiftStart = shiftParts[0]; const shiftEnd = shiftParts[1];
-        if(!arrival) return; const getMins = (t) => { const [h, m] = t.split(':').map(Number); return (h*60)+m; };
+        const arrival = document.getElementById('arrivalTime').value; const shiftStart = document.getElementById('shift').value;
+        if(!arrival || !shiftStart) return; const getMins = (t) => { const [h, m] = t.split(':').map(Number); return (h*60)+m; };
         let aMins = getMins(arrival); const sMins = getMins(shiftStart);
-        // Night shift (e.g. 18:30-03:30) crosses midnight — an arrival time like 00:15 is actually
-        // LATER than the shift start, not earlier, so push it past midnight before comparing.
-        const isOvernightShift = getMins(shiftEnd) <= sMins;
+        // Night shift crosses midnight — an arrival time like 00:15 is actually LATER than the
+        // shift start, not earlier, so push it past midnight before comparing. We now know this
+        // directly from the Shift Type selector rather than inferring it from an end time.
+        const isOvernightShift = document.getElementById('shiftType').value === 'Night';
         if (isOvernightShift && aMins < sMins) aMins += 1440;
         const cutoff = sMins + 30;
         const sEl = document.getElementById('lateStatus'), dEl = document.getElementById('lateDuration');
@@ -621,13 +641,12 @@
  
       function resetLateUI() { document.getElementById('arrivalTime').value = ""; document.getElementById('lateReason').value = ""; document.getElementById('lateStatus').innerText = ""; document.getElementById('lateDuration').innerText = ""; }
 
-      /** Keeps the hidden #shift field ("HH:MM-HH:MM") in sync with the separate
-       *  Start Shift / End Shift time inputs, so all existing shift-parsing logic
-       *  (split('-'), late calc, payloads, etc.) keeps working unchanged. */
+      /** Keeps the hidden #shift field in sync with the Start Shift time input, so all
+       *  existing shift-parsing logic (late calc, payloads, etc.) keeps working unchanged.
+       *  End Shift is no longer collected here — it's filled in later via the separate
+       *  "End Shift" tab at the end of the day. */
       function updateShiftValue() {
-        const start = document.getElementById('shiftStartTime').value;
-        const end = document.getElementById('shiftEndTime').value;
-        document.getElementById('shift').value = (start && end) ? `${start}-${end}` : "";
+        document.getElementById('shift').value = document.getElementById('shiftStartTime').value || "";
         resetLateUI();
       }
  
@@ -640,6 +659,7 @@
  
         registerState[idx].status = durData.status;
         registerState[idx].lateDuration = durData.mins + " mins";
+        registerState[idx].lateReason = document.getElementById('lateReason').value || "Grace Period";
         registerState[idx].replacement = "";
         registerState[idx].replacementRegion = "";
         registerState[idx].absentReason = "";
@@ -674,6 +694,7 @@
         const record = lateRecordsLog[logIdx];
         registerState[record.idx].status = 'Absent';
         registerState[record.idx].lateDuration = "";
+        registerState[record.idx].lateReason = "";
         registerState[record.idx].replacement = "";
         registerState[record.idx].replacementRegion = "";
         lateRecordsLog.splice(logIdx, 1);
@@ -742,6 +763,43 @@
         renderEarlyLog(); renderStaffList(); populateEarlyDropdown();
       }
 
+      // =====================================================================
+      // END SHIFT — filled in at the end of the day to close out the shift
+      // that was started on the Attendance tab. Matched server-side by
+      // date + site + company (not a client-remembered row number), so this
+      // works even if the app was reloaded or re-logged-in since the morning.
+      // =====================================================================
+      function submitEndShift() {
+        if (endShiftSubmitLock) return; // guard against rapid double-taps firing two separate submissions
+        const endTime = document.getElementById('shiftEndTime').value;
+        const date = document.getElementById('regDate').value;
+        if (!date) return alert("Set the Date on the Attendance tab first.");
+        if (!endTime) return alert("Enter the End Shift time.");
+
+        endShiftSubmitLock = true;
+        const btn = document.getElementById('endShiftSubmitBtn'); btn.disabled = true; btn.innerText = "Syncing...";
+
+        const submissionId = generateId(); // reused across any automatic retries of THIS click only
+        const payload = { submissionId, date: date, endTime: endTime, site: userSession.site, comp: userSession.comp, reg: userSession.reg };
+
+        // Queue key is per-date so resubmitting for the same day while still offline
+        // overwrites the pending item instead of creating a duplicate.
+        const queueId = `endshift_${date}`;
+        apiCallOrQueue('endShift', { payload }, queueId, 'endshift', (res) => {
+          if (res && res.status === "Success") { showToast(`End Shift recorded for ${res.updatedRows} staff.`); }
+          else if (res) { alert(res.message); }
+        }).then((outcome) => {
+          btn.disabled = false;
+          endShiftSubmitLock = false;
+          if (outcome.queued) {
+            btn.innerText = "Resubmit End Shift (Queued Offline)";
+            showToast("No connection – saved offline. Will send automatically.");
+          } else {
+            btn.innerText = "Submit End Shift";
+          }
+        });
+      }
+
       function overlayStamp(img, canvas, callback) {
         const ctx = canvas.getContext('2d'); canvas.width = 400; canvas.height = 300; ctx.drawImage(img, 0, 0, 400, 300); ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; ctx.fillRect(0, 260, 400, 40); ctx.fillStyle = "white"; ctx.font = "11px Inter, Arial"; const ts = new Date().toLocaleString(); ctx.fillText(`${currentLocation} | ${ts}`, 10, 285); callback(canvas.toDataURL('image/jpeg', 0.4));
       }
@@ -756,10 +814,10 @@
       function submitRegister() {
         if (registerSubmitLock) return; // guard against rapid double-taps firing two separate submissions
         const pCount = parseInt(document.getElementById('cntP').innerText); const signOff = document.getElementById('signOffName').value;
-        if (!document.getElementById('shiftStartTime').value || !document.getElementById('shiftEndTime').value) return alert("Start Shift and End Shift are required.");
+        if (!document.getElementById('shiftStartTime').value) return alert("Start Shift is required.");
         if (pCount > 0 && !hasGroupPhoto) return alert("Group photo required.");
         if (!signOff) return alert("Sign off name required.");
-        const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration, earlyTimeLeft: registerState[i].earlyTimeLeft, earlyReason: registerState[i].earlyReason }));
+        const final = employees.map((e, i) => ({ name: e.name, status: registerState[i].status, absentReason: registerState[i].absentReason, replacement: registerState[i].replacement, lateDuration: registerState[i].lateDuration, lateReason: registerState[i].lateReason, earlyTimeLeft: registerState[i].earlyTimeLeft, earlyReason: registerState[i].earlyReason }));
         if(final.some(r => r.status === 'unmarked')) return alert("Mark all staff.");
         if(final.some(r => r.status === 'Absent' && (!r.absentReason || !r.replacement))) return alert("Absent staff require Reason AND Replacement.");
 
